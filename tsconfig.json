@@ -6,6 +6,8 @@
     "types": ["node"],
     "moduleResolution": "bundler",
     "strict": true,
+    "verbatimModuleSyntax": true,
+    "exactOptionalPropertyTypes": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,

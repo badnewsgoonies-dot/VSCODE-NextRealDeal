@@ -1,71 +1,73 @@
-import { GameStateMachine } from './state/GameStateMachine';
-import { RngStreams, RngLike } from '../util/RngStreams';
-import {
-  MapManager,
-  BattleManager,
-  UnitManager,
-  EconomyManager,
-  RouteManager,
-  SaveManager,
-} from './Managers';
-import { GameState } from './state/GameState';
+import { GameStateMachine } from './state/GameStateMachine.js';
+import { RngStreams } from '../util/RngStreams.js';
+import type { Logger } from '../util/Logger.js';
+import { ok, err, type Result } from '../util/Result.js';
+import { RouteManager } from '../route/RouteManager.js';
+import { BattleManager } from '../battle/BattleManager.js';
 
 export class GameController {
-  private readonly fsm: GameStateMachine;
-  private readonly rngStreams: RngStreams;
+  private readonly fsm = new GameStateMachine();
 
   constructor(
-    private readonly rng: RngLike,
-    private readonly map: MapManager,
-    private readonly battle: BattleManager,
-    private readonly unit: UnitManager,
-    private readonly economy: EconomyManager,
+    private readonly logger: Logger,
+    private readonly streams: RngStreams,
     private readonly route: RouteManager,
-    private readonly save: SaveManager
-  ) {
-    this.fsm = new GameStateMachine();
-    this.rngStreams = new RngStreams(rng);
+    private readonly battle: BattleManager
+  ) {}
 
-    // Inject subsystem streams up-front
-    this.route.setRng?.(this.rngStreams.get('route'));
-    this.battle.setRng?.(this.rngStreams.get('battle'));
-    this.economy.setRng?.(this.rngStreams.get('economy'));
-    this.map.setRng?.(this.rngStreams.get('map'));
-    this.unit.setRng?.(this.rngStreams.get('unit'));
-    this.save.setRng?.(this.rngStreams.get('save'));
+  getState() { return this.fsm.getState(); }
+
+  async startRun(runId: string): Promise<Result<void>> {
+    const t = this.fsm.transitionTo('route_selection');
+    if (!t.ok) return t;
+
+    const r = await this.route.startRun(runId);
+    if (!r.ok) return r;
+
+    return ok(undefined);
   }
 
-  getState(): GameState {
-    return this.fsm.getState();
+  /** Pick a route node → prepare & enter battle */
+  async selectRoute(nodeId: string): Promise<Result<void>> {
+    if (this.fsm.getState() !== 'route_selection') return err('not-in-route-selection');
+
+    const t1 = this.fsm.transitionTo('battle_preparation');
+    if (!t1.ok) return t1;
+
+    // Example encounter: one player vs one enemy (deterministic seeds via streams)
+    const step = this.route.current()?.step ?? 0;
+    const brng = this.streams.get('battle').fork(`enc:${step}`);
+    const player = { id: 'player', team: 'player' as const, hp: 100, maxHp: 100, atk: 20, def: 10, speed: 50 };
+    const enemy  = { id: `e${step}`, team: 'enemy'  as const, hp: 80,  maxHp: 80,  atk: 15, def: 8,  speed: 40 + (brng.int(0, 1) ? 0 : 1) };
+
+    // Advance the route first (so state always matches battle)
+    const picked = await this.route.choose(nodeId);
+    if (!picked.ok) return picked;
+
+    const started = await this.battle.startBattle([player, enemy], `step-${step}`);
+    if (!started.ok) return started;
+
+    const t2 = this.fsm.transitionTo('battle_active');
+    if (!t2.ok) return t2;
+
+    return ok(undefined);
   }
 
-  async startRun(): Promise<void> {
-    const t1 = this.fsm.transitionTo('route_selection');
-    if (!t1.ok) throw new Error(t1.error);
+  /** Complete a battle → move to rewards → either loop or finish the run */
+  async completeBattle(): Promise<Result<void>> {
+    if (this.fsm.getState() !== 'battle_active') return err('not-in-battle');
 
-    await this.route.startRun?.();
-  }
+    const t1 = this.fsm.transitionTo('battle_resolution');
+    if (!t1.ok) return t1;
 
-  async selectRouteNode(nodeId: string): Promise<void> {
-    if (!this.fsm.transitionTo('battle_preparation').ok) return;
+    // (Economy would go here; we only switch states for now)
+    const t2 = this.fsm.transitionTo('economy_rewards');
+    if (!t2.ok) return t2;
 
-    await this.battle.prepareBattle(nodeId);
+    const done = this.route.current()?.complete === true;
+    const next = this.fsm.transitionTo(done ? 'run_complete' : 'route_selection');
+    if (!next.ok) return next;
 
-    if (!this.fsm.transitionTo('battle_active').ok) return;
-  }
-
-  async completeBattle(outcome: { victory: boolean }): Promise<void> {
-    if (!this.fsm.transitionTo('battle_resolution').ok) return;
-
-    await this.economy.generateRewards(outcome);
-
-    this.fsm.transitionTo('economy_rewards');
-  }
-
-  async selectReward(rewardId: string): Promise<void> {
-    await this.economy.applyReward(rewardId);
-
-    const runOver = this.route.isComplete?.() || this.unit.isPlayerDead?.();
-    this.fsm.transitionTo(runOver ? 'run_complete' : 'route_selection');
+    return ok(undefined);
   }
 }
