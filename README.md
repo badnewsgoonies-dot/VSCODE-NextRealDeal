@@ -166,6 +166,21 @@ npm run test:watch
 npm run test:coverage
 ```
 
+## Demo
+
+To see the engine in action, run the demo script:
+
+```bash
+npm run demo
+```
+
+This will demonstrate:
+- Basic RNG with determinism
+- Independent RNG streams via forking
+- Centralized RNG stream manager
+- Game controller with state transitions
+- Determinism verification across multiple runs
+
 ## Building
 
 ```bash
