@@ -67,9 +67,12 @@ describe('Rng', () => {
     expect(values1).toEqual(values2);
   });
 
-  it('throws on invalid range', () => {
+  it('handles swapped range (new behavior)', () => {
     const rng = makeRng(123);
-    expect(() => rng.int(10, 5)).toThrow();
+    // New RNG auto-swaps if max < min instead of throwing
+    const val = rng.int(10, 5);
+    expect(val).toBeGreaterThanOrEqual(5);
+    expect(val).toBeLessThanOrEqual(10);
   });
 
   it('property: values are in range', () => {

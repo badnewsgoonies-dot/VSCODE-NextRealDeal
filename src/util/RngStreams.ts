@@ -1,35 +1,22 @@
-// Minimal interface compatible with makeRng().fork('key') style.
-export interface RngLike {
-  int(min: number, max: number): number;
-  float(): number;
-  fork(label: string): RngLike;
-}
+import type { Rng } from './Rng.js';
 
-type KnownStream =
-  | 'route'
-  | 'battle'
-  | 'economy'
-  | 'map'
-  | 'unit'
-  | 'save'
-  | 'events'
-  | 'loot';
+export type RngLabel = 'route' | 'battle' | 'economy' | 'map' | 'unit' | 'save' | 'events' | 'loot';
+const DEFAULT: RngLabel[] = ['route', 'battle', 'economy', 'map', 'unit', 'save', 'events', 'loot'];
 
-const DEFAULT_STREAMS: KnownStream[] = [
-  'route', 'battle', 'economy', 'map', 'unit', 'save', 'events', 'loot',
-];
+// Backward compatibility
+export type RngLike = Rng;
 
 export class RngStreams {
-  private readonly streams = new Map<string, RngLike>();
+  private readonly streams = new Map<string, Rng>();
 
-  constructor(root: RngLike, labels: readonly string[] = DEFAULT_STREAMS) {
+  constructor(root: Rng, labels: readonly string[] = DEFAULT) {
     for (const label of labels) {
       // Fork once so sub-systems can't contaminate each other.
       this.streams.set(label, root.fork(label));
     }
   }
 
-  get<T extends string = KnownStream>(label: T): RngLike {
+  get<T extends string = RngLabel>(label: T): Rng {
     const s = this.streams.get(label);
     if (!s) throw new Error(`RNG stream '${label}' not initialized`);
     return s;

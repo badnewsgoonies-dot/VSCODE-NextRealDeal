@@ -1,72 +1,45 @@
-/**
- * A deterministic pseudo-random number generator using a simple LCG algorithm.
- * This implementation supports forking to create independent streams.
- */
-export interface RngLike {
+// Deterministic RNG with fork(label). sfc32 + xmur3-style hashing.
+export interface Rng {
   int(min: number, max: number): number;
   float(): number;
-  fork(label: string): RngLike;
+  fork(label: string): Rng;
 }
 
-class Rng implements RngLike {
-  private state: number;
+// Backward compatibility
+export type RngLike = Rng;
 
-  constructor(seed: number) {
-    // Ensure seed is a valid 32-bit integer
-    this.state = (seed >>> 0) || 1;
-  }
+const hash = (s: string) => {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+};
 
-  /**
-   * Generate a random integer between min (inclusive) and max (inclusive)
-   */
-  int(min: number, max: number): number {
-    if (min > max) {
-      throw new Error(`min (${min}) must be <= max (${max})`);
-    }
-    const range = max - min + 1;
-    return min + (this.next() % range);
-  }
+const sfc32 = (a: number, b: number, c: number, d: number) => () => {
+  a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0;
+  const t = (a + b) | 0;
+  a = b ^ (b >>> 9);
+  b = (c + (c << 3)) | 0;
+  c = (c << 21) | (c >>> 11);
+  d = (d + 1) | 0;
+  const r = (t + d) | 0;
+  return (r >>> 0) / 4294967296;
+};
 
-  /**
-   * Generate a random float between 0 (inclusive) and 1 (exclusive)
-   */
-  float(): number {
-    return this.next() / 0x100000000;
-  }
+export const createRng = (seed: number | string): Rng => {
+  const base = typeof seed === 'number' ? seed >>> 0 : hash(String(seed));
+  let rnd = sfc32(base, base ^ 0x9e3779b9, base ^ 0x7f4a7c15, base ^ 0x94d049bb);
+  const api: Rng = {
+    float: () => rnd(),
+    int: (min, max) => {
+      if (max < min) [min, max] = [max, min];
+      return Math.floor(api.float() * (max - min + 1)) + min;
+    },
+    fork: (label) => createRng(base ^ hash(label)),
+  };
+  return api;
+};
 
-  /**
-   * Fork this RNG to create an independent stream with a derived seed.
-   * Does not advance parent state to ensure determinism when creating
-   * multiple RngStreams with the same seed.
-   */
-  fork(label: string): RngLike {
-    // Create a hash from the label
-    let hash = 0;
-    for (let i = 0; i < label.length; i++) {
-      hash = ((hash << 5) - hash + label.charCodeAt(i)) | 0;
-    }
-    
-    // Combine current state with label hash to create new seed
-    const newSeed = (this.state ^ hash) >>> 0;
-    
-    return new Rng(newSeed);
-  }
-
-  /**
-   * Generate the next random number using Linear Congruential Generator
-   * Using parameters from Numerical Recipes
-   */
-  private next(): number {
-    // LCG: state = (a * state + c) mod m
-    // a = 1664525, c = 1013904223, m = 2^32
-    this.state = ((1664525 * this.state + 1013904223) >>> 0);
-    return this.state;
-  }
-}
-
-/**
- * Create a new deterministic RNG with the given seed
- */
+// Backward compatibility
 export function makeRng(seed: number): RngLike {
-  return new Rng(seed);
+  return createRng(seed);
 }
