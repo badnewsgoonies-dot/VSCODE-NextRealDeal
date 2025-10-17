@@ -39,7 +39,8 @@ async function main() {
   console.log(`  Route stream: ${streams.get('route').int(1, 10)}`);
   console.log(`  Battle stream: ${streams.get('battle').int(1, 10)}`);
   console.log(`  Economy stream: ${streams.get('economy').int(1, 10)}`);
-  console.log(`  All streams independent: ${streams.sampleDistinct()}`);
+  const isIndependent = streams.sampleDistinct() ? 'Yes' : 'No';
+  console.log(`  Streams are independent: ${isIndependent}`);
   console.log();
 
   // Example 4: Game Controller with State Machine
